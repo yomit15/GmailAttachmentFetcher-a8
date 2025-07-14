@@ -4,8 +4,8 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Loader2, ExternalLink } from "lucide-react"
 
 interface Log {
   id: string
@@ -13,6 +13,8 @@ interface Log {
   file_name: string
   file_type: string
   status: string
+  drive_file_id: string | null
+  drive_link: string | null
   created_at: string
 }
 
@@ -78,7 +80,7 @@ export function LogsTable({ userEmail }: LogsTableProps) {
       <CardHeader className="flex flex-row items-center justify-between">
         <div>
           <CardTitle>Download Logs</CardTitle>
-          <CardDescription>View your recent Gmail attachment downloads</CardDescription>
+          <CardDescription>View your recent Gmail attachment downloads and Drive uploads</CardDescription>
         </div>
         <Button variant="outline" size="sm" onClick={refreshLogs} disabled={isLoading}>
           {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
@@ -89,7 +91,7 @@ export function LogsTable({ userEmail }: LogsTableProps) {
           <div className="text-center py-8">
             <p className="text-muted-foreground">No download logs found</p>
             <p className="text-sm text-muted-foreground mt-2">
-              Downloads will appear here once the automation starts running
+              Downloads will appear here once you start using the download feature
             </p>
           </div>
         ) : (
@@ -99,6 +101,7 @@ export function LogsTable({ userEmail }: LogsTableProps) {
                 <TableHead>File Name</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Drive Link</TableHead>
                 <TableHead>Date</TableHead>
               </TableRow>
             </TableHeader>
@@ -111,6 +114,17 @@ export function LogsTable({ userEmail }: LogsTableProps) {
                   </TableCell>
                   <TableCell>
                     <Badge variant={log.status === "success" ? "default" : "destructive"}>{log.status}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    {log.drive_link ? (
+                      <Button variant="ghost" size="sm" asChild>
+                        <a href={log.drive_link} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </Button>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">-</span>
+                    )}
                   </TableCell>
                   <TableCell>{new Date(log.created_at).toLocaleDateString()}</TableCell>
                 </TableRow>

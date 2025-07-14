@@ -1,14 +1,24 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { Download, Loader2 } from "lucide-react"
+import { Download, Loader2, RefreshCw, ExternalLink } from "lucide-react"
 
 export function DownloadButton() {
   const [isDownloading, setIsDownloading] = useState(false)
+  const [lastDownload, setLastDownload] = useState<{
+    time: string
+    folderName?: string
+    count: number
+  } | null>(null)
   const { toast } = useToast()
+
+  // Reset download state on component mount
+  useEffect(() => {
+    setIsDownloading(false)
+  }, [])
 
   const handleDownload = async () => {
     setIsDownloading(true)
@@ -24,14 +34,20 @@ export function DownloadButton() {
       const result = await response.json()
 
       if (response.ok) {
+        setLastDownload({
+          time: new Date().toLocaleString(),
+          folderName: result.folderName,
+          count: result.attachmentCount,
+        })
         toast({
-          title: "Download Started!",
-          description: `Found ${result.emailCount} emails. Processing ${result.attachmentCount} attachments.`,
+          title: "Download Completed!",
+          description: `Found ${result.emailCount} emails. Uploaded ${result.attachmentCount} attachments to Google Drive.`,
         })
       } else {
         throw new Error(result.error || "Failed to start download")
       }
     } catch (error) {
+      console.error("Download error:", error)
       toast({
         title: "Download Failed",
         description: error instanceof Error ? error.message : "An unexpected error occurred",
@@ -42,13 +58,17 @@ export function DownloadButton() {
     }
   }
 
+  const openGoogleDrive = () => {
+    window.open("https://drive.google.com", "_blank")
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Download Attachments</CardTitle>
-        <CardDescription>Download attachments from emails received in the last 30 days</CardDescription>
+        <CardTitle>Download & Upload Attachments</CardTitle>
+        <CardDescription>Download attachments from Gmail and upload them to your Google Drive</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <Button onClick={handleDownload} disabled={isDownloading} className="w-full" size="lg">
           {isDownloading ? (
             <>
@@ -58,13 +78,43 @@ export function DownloadButton() {
           ) : (
             <>
               <Download className="mr-2 h-4 w-4" />
-              Download Attachments
+              Download & Upload to Drive
             </>
           )}
         </Button>
-        <p className="text-xs text-muted-foreground mt-2 text-center">
-          This will scan your Gmail for attachments matching your selected file type
-        </p>
+
+        {lastDownload && (
+          <div className="space-y-3 p-3 bg-green-50 rounded-lg border border-green-200">
+            <div className="text-center">
+              <p className="text-sm font-medium text-green-800">Last upload: {lastDownload.time}</p>
+              <p className="text-xs text-green-600">
+                {lastDownload.count} files uploaded to "{lastDownload.folderName}"
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownload}
+                disabled={isDownloading}
+                className="flex-1 bg-transparent"
+              >
+                <RefreshCw className="mr-2 h-3 w-3" />
+                Upload Again
+              </Button>
+              <Button variant="outline" size="sm" onClick={openGoogleDrive} className="flex-1 bg-transparent">
+                <ExternalLink className="mr-2 h-3 w-3" />
+                Open Drive
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="text-xs text-muted-foreground space-y-1">
+          <p>• Scans Gmail for attachments from the last 30 days</p>
+          <p>• Filters by your selected file type</p>
+          <p>• Uploads matching files to a new Google Drive folder</p>
+        </div>
       </CardContent>
     </Card>
   )

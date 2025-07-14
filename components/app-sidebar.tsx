@@ -2,6 +2,7 @@
 
 import { Home, FileText, LogOut } from "lucide-react"
 import { signOut } from "next-auth/react"
+import { useState } from "react"
 import {
   Sidebar,
   SidebarContent,
@@ -30,6 +31,21 @@ const items = [
 ]
 
 export function AppSidebar() {
+  const [isSigningOut, setIsSigningOut] = useState(false)
+
+  const handleSignOut = async () => {
+    try {
+      setIsSigningOut(true)
+      await signOut({
+        callbackUrl: "/",
+        redirect: true,
+      })
+    } catch (error) {
+      console.error("Sign out error:", error)
+      setIsSigningOut(false)
+    }
+  }
+
   return (
     <Sidebar>
       <SidebarHeader>
@@ -59,9 +75,9 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton onClick={() => signOut({ callbackUrl: "/" })}>
+            <SidebarMenuButton onClick={handleSignOut} disabled={isSigningOut}>
               <LogOut />
-              <span>Sign Out</span>
+              <span>{isSigningOut ? "Signing out..." : "Sign Out"}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

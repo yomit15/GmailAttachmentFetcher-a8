@@ -1,18 +1,46 @@
-import { getServerSession } from "next-auth/next"
-import { redirect } from "next/navigation"
-import { authOptions } from "@/lib/auth"
+"use client"
+
+import { useSession } from "next-auth/react"
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { FileTypeSelector } from "@/components/file-type-selector"
 import { UserCard } from "@/components/user-card"
 import { Separator } from "@/components/ui/separator"
 import { DownloadButton } from "@/components/download-button"
+import { Loader2 } from "lucide-react"
 
-export default async function DashboardPage() {
-  const session = await getServerSession(authOptions)
+export default function DashboardPage() {
+  const { data: session, status } = useSession()
+  const router = useRouter()
 
-  if (!session) {
-    redirect("/")
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/")
+    }
+  }, [status, router])
+
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <span>Loading dashboard...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (status === "unauthenticated") {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <span>Redirecting to login...</span>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -31,7 +59,7 @@ export default async function DashboardPage() {
               <DownloadButton />
             </div>
             <div>
-              <UserCard user={session.user} />
+              <UserCard user={session?.user} />
             </div>
           </div>
         </div>

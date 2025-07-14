@@ -12,21 +12,30 @@ export type Database = {
         Row: {
           id: string
           email: string
-          file_type: string
+          file_type: string | null
+          access_token: string | null
+          refresh_token: string | null
+          token_expires_at: string | null
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
           email: string
-          file_type: string
+          file_type?: string | null
+          access_token?: string | null
+          refresh_token?: string | null
+          token_expires_at?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
           email?: string
-          file_type?: string
+          file_type?: string | null
+          access_token?: string | null
+          refresh_token?: string | null
+          token_expires_at?: string | null
           created_at?: string
           updated_at?: string
         }

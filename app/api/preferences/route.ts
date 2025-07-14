@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
-import { supabase } from "@/lib/supabase"
+import { supabaseAdmin } from "@/lib/supabase-admin"
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,8 +17,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File type is required" }, { status: 400 })
     }
 
-    // Upsert user preferences
-    const { data, error } = await supabase.from("users").upsert(
+    // Update user preferences (preserve existing tokens)
+    const { data, error } = await supabaseAdmin.from("users").upsert(
       {
         email: session.user.email,
         file_type: fileType,
@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       },
       {
         onConflict: "email",
+        ignoreDuplicates: false,
       },
     )
 
@@ -49,7 +50,11 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { data, error } = await supabase.from("users").select("*").eq("email", session.user.email).single()
+    const { data, error } = await supabaseAdmin
+      .from("users")
+      .select("file_type, created_at, updated_at")
+      .eq("email", session.user.email)
+      .single()
 
     if (error && error.code !== "PGRST116") {
       console.error("Supabase error:", error)

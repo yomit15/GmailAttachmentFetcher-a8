@@ -1,13 +1,41 @@
-import { getServerSession } from "next-auth/next"
-import { redirect } from "next/navigation"
-import { authOptions } from "@/lib/auth"
+"use client"
+
+import { useSession } from "next-auth/react"
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 import { LoginForm } from "@/components/login-form"
+import { Loader2 } from "lucide-react"
 
-export default async function HomePage() {
-  const session = await getServerSession(authOptions)
+export default function HomePage() {
+  const { data: session, status } = useSession()
+  const router = useRouter()
 
-  if (session) {
-    redirect("/dashboard")
+  useEffect(() => {
+    if (status === "authenticated" && session) {
+      router.push("/dashboard")
+    }
+  }, [status, session, router])
+
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <span>Loading...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (status === "authenticated") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <span>Redirecting to dashboard...</span>
+        </div>
+      </div>
+    )
   }
 
   return (

@@ -1,33 +1,97 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
-import { supabase } from "@/lib/supabase"
+import { supabaseAdmin } from "@/lib/supabase-admin"
 import { google } from "googleapis"
 
 export async function POST() {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session?.user?.email || !session.accessToken) {
+    if (!session?.user?.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Get user's file type preference
-    const { data: userData, error: userError } = await supabase
+    console.log("Fetching user data for:", session.user.email)
+
+    // Get user's data including tokens from Supabase
+    const { data: userData, error: userError } = await supabaseAdmin
       .from("users")
-      .select("file_type")
+      .select("file_type, access_token, refresh_token, token_expires_at")
       .eq("email", session.user.email)
       .single()
 
-    if (userError || !userData?.file_type) {
+    if (userError) {
+      console.error("User fetch error:", userError)
+      return NextResponse.json({ error: "User not found. Please sign in again." }, { status: 400 })
+    }
+
+    if (!userData) {
+      return NextResponse.json({ error: "User data not found. Please sign in again." }, { status: 400 })
+    }
+
+    console.log("User data:", {
+      email: session.user.email,
+      hasFileType: !!userData.file_type,
+      hasAccessToken: !!userData.access_token,
+      hasRefreshToken: !!userData.refresh_token,
+      tokenExpiresAt: userData.token_expires_at,
+    })
+
+    if (!userData.file_type) {
       return NextResponse.json({ error: "Please set your file type preference first" }, { status: 400 })
     }
 
-    // Initialize Gmail API
+    if (!userData.access_token) {
+      return NextResponse.json(
+        {
+          error: "No access token found. Please sign out and sign in again to reconnect your Gmail account.",
+        },
+        { status: 401 },
+      )
+    }
+
+    // Check if token is expired
+    let currentAccessToken = userData.access_token
+    if (userData.token_expires_at) {
+      const tokenExpiresAt = new Date(userData.token_expires_at)
+      const now = new Date()
+
+      if (tokenExpiresAt <= now && userData.refresh_token) {
+        console.log("Token expired, refreshing...")
+        const refreshResult = await refreshUserToken(session.user.email, userData.refresh_token)
+        if (!refreshResult.success) {
+          return NextResponse.json(
+            {
+              error: "Token expired and refresh failed. Please sign out and sign in again.",
+            },
+            { status: 401 },
+          )
+        }
+        currentAccessToken = refreshResult.accessToken
+      }
+    }
+
+    // Initialize Google APIs with fresh token
     const oauth2Client = new google.auth.OAuth2()
-    oauth2Client.setCredentials({ access_token: session.accessToken })
+    oauth2Client.setCredentials({ access_token: currentAccessToken })
 
     const gmail = google.gmail({ version: "v1", auth: oauth2Client })
+    const drive = google.drive({ version: "v3", auth: oauth2Client })
+
+    // Test Gmail API access
+    try {
+      await gmail.users.getProfile({ userId: "me" })
+      console.log("Gmail API access confirmed")
+    } catch (gmailError) {
+      console.error("Gmail API access failed:", gmailError)
+      return NextResponse.json(
+        {
+          error: "Gmail API access failed. Please sign out and sign in again.",
+        },
+        { status: 401 },
+      )
+    }
 
     // Calculate date 30 days ago
     const thirtyDaysAgo = new Date()
@@ -42,15 +106,32 @@ export async function POST() {
     const messagesResponse = await gmail.users.messages.list({
       userId: "me",
       q: searchQuery,
-      maxResults: 100,
+      maxResults: 50,
     })
 
     const messages = messagesResponse.data.messages || []
     let attachmentCount = 0
     const downloadResults = []
 
+    console.log(`Found ${messages.length} emails with attachments`)
+
+    // Create a folder in Google Drive for attachments
+    const folderName = `Gmail Attachments - ${new Date().toISOString().split("T")[0]}`
+    const folderMetadata = {
+      name: folderName,
+      mimeType: "application/vnd.google-apps.folder",
+    }
+
+    const folder = await drive.files.create({
+      requestBody: folderMetadata,
+      fields: "id",
+    })
+
+    const folderId = folder.data.id
+
     // Process each message
-    for (const message of messages) {
+    for (const message of messages.slice(0, 20)) {
+      // Limit to 20 for performance
       try {
         const messageDetail = await gmail.users.messages.get({
           userId: "me",
@@ -75,25 +156,50 @@ export async function POST() {
                   id: part.body.attachmentId,
                 })
 
-                // In a real implementation, you would save the file to cloud storage
-                // For now, we'll just log the successful "download"
-                const logResult = await supabase.from("logs").insert({
-                  user_email: session.user.email,
-                  file_name: part.filename,
-                  file_type: fileExtension,
-                  status: "success",
-                })
+                // Decode base64 data
+                const data = attachment.data.data
+                if (data) {
+                  const buffer = Buffer.from(data, "base64")
 
-                downloadResults.push({
-                  filename: part.filename,
-                  size: part.body.size,
-                  status: "success",
-                })
+                  // Upload to Google Drive
+                  const fileMetadata = {
+                    name: part.filename,
+                    parents: [folderId!],
+                  }
+
+                  const media = {
+                    mimeType: getMimeType(fileExtension),
+                    body: buffer,
+                  }
+
+                  const driveFile = await drive.files.create({
+                    requestBody: fileMetadata,
+                    media: media,
+                    fields: "id,name,webViewLink",
+                  })
+
+                  // Log the successful upload
+                  await supabaseAdmin.from("logs").insert({
+                    user_email: session.user.email,
+                    file_name: part.filename,
+                    file_type: fileExtension,
+                    status: "success",
+                    drive_file_id: driveFile.data.id,
+                    drive_link: driveFile.data.webViewLink,
+                  })
+
+                  downloadResults.push({
+                    filename: part.filename,
+                    size: part.body.size,
+                    status: "success",
+                    driveLink: driveFile.data.webViewLink,
+                  })
+                }
               } catch (attachmentError) {
-                console.error("Error downloading attachment:", attachmentError)
+                console.error("Error downloading/uploading attachment:", attachmentError)
 
                 // Log the failed download
-                await supabase.from("logs").insert({
+                await supabaseAdmin.from("logs").insert({
                   user_email: session.user.email,
                   file_name: part.filename,
                   file_type: fileExtension,
@@ -118,12 +224,80 @@ export async function POST() {
       emailCount: messages.length,
       attachmentCount,
       downloads: downloadResults,
-      message: `Processed ${messages.length} emails and found ${attachmentCount} matching attachments`,
+      folderName,
+      message: `Processed ${messages.length} emails and uploaded ${attachmentCount} matching attachments to Google Drive`,
     })
   } catch (error) {
     console.error("Download error:", error)
     return NextResponse.json({ error: "Failed to download attachments. Please try again." }, { status: 500 })
   }
+}
+
+// Helper function to refresh user token
+async function refreshUserToken(email: string, refreshToken: string) {
+  try {
+    console.log("Refreshing token for user:", email)
+
+    const response = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID!,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+    })
+
+    const refreshedTokens = await response.json()
+
+    if (!response.ok) {
+      console.error("Token refresh failed:", refreshedTokens)
+      return { success: false }
+    }
+
+    const newExpiresAt = new Date(Date.now() + refreshedTokens.expires_in * 1000)
+
+    // Update tokens in Supabase
+    const { error } = await supabaseAdmin
+      .from("users")
+      .update({
+        access_token: refreshedTokens.access_token,
+        refresh_token: refreshedTokens.refresh_token || refreshToken,
+        token_expires_at: newExpiresAt.toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("email", email)
+
+    if (error) {
+      console.error("Error updating refreshed tokens:", error)
+      return { success: false }
+    }
+
+    console.log("Successfully refreshed and updated tokens")
+    return { success: true, accessToken: refreshedTokens.access_token }
+  } catch (error) {
+    console.error("Error refreshing token:", error)
+    return { success: false }
+  }
+}
+
+// Helper function to get MIME type
+function getMimeType(extension: string): string {
+  const mimeTypes: { [key: string]: string } = {
+    pdf: "application/pdf",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    zip: "application/zip",
+    csv: "text/csv",
+  }
+  return mimeTypes[extension] || "application/octet-stream"
 }
 
 // Helper function to recursively get all parts from email payload
