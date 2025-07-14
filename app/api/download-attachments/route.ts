@@ -17,7 +17,7 @@ export async function POST() {
     // Get user's data including tokens from Supabase
     const { data: userData, error: userError } = await supabaseAdmin
       .from("users")
-      .select("file_type, access_token, refresh_token, token_expires_at")
+      .select("file_type, file_name_filter, date_from, access_token, refresh_token, token_expires_at")
       .eq("email", session.user.email)
       .single()
 
@@ -35,11 +35,17 @@ export async function POST() {
       hasFileType: !!userData.file_type,
       hasAccessToken: !!userData.access_token,
       hasRefreshToken: !!userData.refresh_token,
+      fileNameFilter: userData.file_name_filter,
+      dateFrom: userData.date_from,
       tokenExpiresAt: userData.token_expires_at,
     })
 
     if (!userData.file_type) {
       return NextResponse.json({ error: "Please set your file type preference first" }, { status: 400 })
+    }
+
+    if (!userData.date_from) {
+      return NextResponse.json({ error: "Please set your date preference first" }, { status: 400 })
     }
 
     if (!userData.access_token) {
@@ -93,20 +99,31 @@ export async function POST() {
       )
     }
 
-    // Calculate date 30 days ago
-    const thirtyDaysAgo = new Date()
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-    const dateQuery = `after:${thirtyDaysAgo.getFullYear()}/${(thirtyDaysAgo.getMonth() + 1)
+    // Build search query based on user preferences
+    const fromDate = new Date(userData.date_from)
+    const dateQuery = `after:${fromDate.getFullYear()}/${(fromDate.getMonth() + 1)
       .toString()
-      .padStart(2, "0")}/${thirtyDaysAgo.getDate().toString().padStart(2, "0")}`
+      .padStart(2, "0")}/${fromDate.getDate().toString().padStart(2, "0")}`
 
     // Search for emails with attachments
-    const searchQuery = `has:attachment ${dateQuery}`
+    let searchQuery = `has:attachment ${dateQuery}`
+
+    // Add filename filter if provided
+    if (userData.file_name_filter) {
+      const keywords = userData.file_name_filter.split(/\s+/).filter(Boolean)
+      if (keywords.length > 0) {
+        // Add filename search terms
+        const filenameQuery = keywords.map((keyword) => `filename:${keyword}`).join(" OR ")
+        searchQuery += ` (${filenameQuery})`
+      }
+    }
+
+    console.log("Gmail search query:", searchQuery)
 
     const messagesResponse = await gmail.users.messages.list({
       userId: "me",
       q: searchQuery,
-      maxResults: 50,
+      maxResults: 100,
     })
 
     const messages = messagesResponse.data.messages || []
@@ -116,7 +133,9 @@ export async function POST() {
     console.log(`Found ${messages.length} emails with attachments`)
 
     // Create a folder in Google Drive for attachments
-    const folderName = `Gmail Attachments - ${new Date().toISOString().split("T")[0]}`
+    const folderName = `Gmail Attachments - ${new Date().toISOString().split("T")[0]} - ${userData.file_type}${
+      userData.file_name_filter ? ` (${userData.file_name_filter})` : ""
+    }`
     const folderMetadata = {
       name: folderName,
       mimeType: "application/vnd.google-apps.folder",
@@ -130,8 +149,8 @@ export async function POST() {
     const folderId = folder.data.id
 
     // Process each message
-    for (const message of messages.slice(0, 20)) {
-      // Limit to 20 for performance
+    for (const message of messages.slice(0, 50)) {
+      // Limit to 50 for performance
       try {
         const messageDetail = await gmail.users.messages.get({
           userId: "me",
@@ -145,7 +164,17 @@ export async function POST() {
             const fileExtension = getFileExtension(part.filename)
 
             // Check if this attachment matches user's preferred file type
-            if (fileExtension === userData.file_type) {
+            const matchesFileType = userData.file_type === "all" || fileExtension === userData.file_type
+
+            // Check if filename matches the filter (if provided)
+            let matchesNameFilter = true
+            if (userData.file_name_filter) {
+              const keywords = userData.file_name_filter.toLowerCase().split(/\s+/).filter(Boolean)
+              const filename = part.filename.toLowerCase()
+              matchesNameFilter = keywords.some((keyword) => filename.includes(keyword))
+            }
+
+            if (matchesFileType && matchesNameFilter) {
               attachmentCount++
 
               try {
@@ -186,6 +215,7 @@ export async function POST() {
                     status: "success",
                     drive_file_id: driveFile.data.id,
                     drive_link: driveFile.data.webViewLink,
+                    search_query: searchQuery,
                   })
 
                   downloadResults.push({
@@ -204,6 +234,7 @@ export async function POST() {
                   file_name: part.filename,
                   file_type: fileExtension,
                   status: "failed",
+                  search_query: searchQuery,
                 })
 
                 downloadResults.push({
@@ -225,6 +256,9 @@ export async function POST() {
       attachmentCount,
       downloads: downloadResults,
       folderName,
+      searchQuery,
+      dateRange: `From ${fromDate.toLocaleDateString()} to ${new Date().toLocaleDateString()}`,
+      nameFilter: userData.file_name_filter || "None",
       message: `Processed ${messages.length} emails and uploaded ${attachmentCount} matching attachments to Google Drive`,
     })
   } catch (error) {

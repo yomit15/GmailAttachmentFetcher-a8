@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Loader2, ExternalLink } from "lucide-react"
+import { Loader2, ExternalLink, Search } from "lucide-react"
+import { Input } from "@/components/ui/input"
 
 interface Log {
   id: string
@@ -15,6 +16,7 @@ interface Log {
   status: string
   drive_file_id: string | null
   drive_link: string | null
+  search_query: string | null
   created_at: string
 }
 
@@ -24,7 +26,9 @@ interface LogsTableProps {
 
 export function LogsTable({ userEmail }: LogsTableProps) {
   const [logs, setLogs] = useState<Log[]>([])
+  const [filteredLogs, setFilteredLogs] = useState<Log[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
 
   const refreshLogs = async () => {
     setIsLoading(true)
@@ -33,6 +37,7 @@ export function LogsTable({ userEmail }: LogsTableProps) {
       if (response.ok) {
         const { data } = await response.json()
         setLogs(data || [])
+        setFilteredLogs(data || [])
       }
     } catch (error) {
       console.error("Failed to fetch logs:", error)
@@ -48,6 +53,7 @@ export function LogsTable({ userEmail }: LogsTableProps) {
         if (response.ok) {
           const { data } = await response.json()
           setLogs(data || [])
+          setFilteredLogs(data || [])
         }
       } catch (error) {
         console.error("Failed to fetch logs:", error)
@@ -58,6 +64,15 @@ export function LogsTable({ userEmail }: LogsTableProps) {
 
     fetchLogs()
   }, [userEmail])
+
+  useEffect(() => {
+    if (searchTerm) {
+      const filtered = logs.filter((log) => log.file_name.toLowerCase().includes(searchTerm.toLowerCase()))
+      setFilteredLogs(filtered)
+    } else {
+      setFilteredLogs(logs)
+    }
+  }, [searchTerm, logs])
 
   if (isLoading) {
     return (
@@ -95,42 +110,61 @@ export function LogsTable({ userEmail }: LogsTableProps) {
             </p>
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>File Name</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Drive Link</TableHead>
-                <TableHead>Date</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {logs.map((log) => (
-                <TableRow key={log.id}>
-                  <TableCell className="font-medium">{log.file_name}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{log.file_type}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={log.status === "success" ? "default" : "destructive"}>{log.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    {log.drive_link ? (
-                      <Button variant="ghost" size="sm" asChild>
-                        <a href={log.drive_link} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      </Button>
-                    ) : (
-                      <span className="text-muted-foreground text-sm">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell>{new Date(log.created_at).toLocaleDateString()}</TableCell>
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by file name..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="max-w-sm"
+              />
+              {searchTerm && (
+                <Badge variant="secondary">
+                  {filteredLogs.length} of {logs.length} files
+                </Badge>
+              )}
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>File Name</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Drive Link</TableHead>
+                  <TableHead>Date</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredLogs.map((log) => (
+                  <TableRow key={log.id}>
+                    <TableCell className="font-medium max-w-xs truncate" title={log.file_name}>
+                      {log.file_name}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{log.file_type}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={log.status === "success" ? "default" : "destructive"}>{log.status}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {log.drive_link ? (
+                        <Button variant="ghost" size="sm" asChild>
+                          <a href={log.drive_link} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </Button>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>{new Date(log.created_at).toLocaleDateString()}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
     </Card>

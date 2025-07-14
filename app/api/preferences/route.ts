@@ -11,10 +11,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { fileType } = await request.json()
+    const { fileType, fileNameFilter, dateFrom } = await request.json()
 
     if (!fileType) {
       return NextResponse.json({ error: "File type is required" }, { status: 400 })
+    }
+
+    if (!dateFrom) {
+      return NextResponse.json({ error: "Start date is required" }, { status: 400 })
     }
 
     // Update user preferences (preserve existing tokens)
@@ -22,6 +26,8 @@ export async function POST(request: NextRequest) {
       {
         email: session.user.email,
         file_type: fileType,
+        file_name_filter: fileNameFilter || null,
+        date_from: dateFrom,
         updated_at: new Date().toISOString(),
       },
       {
@@ -52,7 +58,7 @@ export async function GET() {
 
     const { data, error } = await supabaseAdmin
       .from("users")
-      .select("file_type, created_at, updated_at")
+      .select("file_type, file_name_filter, date_from, created_at, updated_at")
       .eq("email", session.user.email)
       .single()
 
