@@ -13,7 +13,7 @@ export const authOptions: NextAuthOptions = {
       authorization: {
         params: {
           scope:
-            "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.file",
+            "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.labels https://www.googleapis.com/auth/gmail.metadata https://www.googleapis.com/auth/drive.file",
           access_type: "offline",
           prompt: "consent",
         },
@@ -68,7 +68,7 @@ export const authOptions: NextAuthOptions = {
       }
 
       // Return previous token if the access token has not expired yet
-      if (token.expiresAt && Date.now() < (token.expiresAt as number) * 1000) {
+      if (token.expiresAt && Math.floor(Date.now() / 1000) < (token.expiresAt as number)) {
         return token
       }
 
@@ -157,6 +157,7 @@ async function refreshAccessToken(token: any) {
       accessToken: refreshedTokens.access_token,
       expiresAt: newExpiresAt,
       refreshToken: refreshedTokens.refresh_token ?? token.refreshToken,
+      email: token.email
     }
   } catch (error) {
     console.error("Error refreshing access token:", error)

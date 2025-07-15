@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { google } from "googleapis"
+import { Readable } from "stream";
 
 export async function POST() {
   try {
@@ -131,7 +132,7 @@ export async function POST() {
       const keywords = userData.file_name_filter.split(/\s+/).filter(Boolean)
       if (keywords.length > 0) {
         // Add filename search terms
-        const filenameQuery = keywords.map((keyword) => `filename:${keyword}`).join(" OR ")
+        const filenameQuery = keywords.map((keyword: string) => `filename:${keyword}`).join(" OR ")
         searchQuery += ` (${filenameQuery})`
       }
     }
@@ -189,7 +190,7 @@ export async function POST() {
             if (userData.file_name_filter) {
               const keywords = userData.file_name_filter.toLowerCase().split(/\s+/).filter(Boolean)
               const filename = part.filename.toLowerCase()
-              matchesNameFilter = keywords.some((keyword) => filename.includes(keyword))
+              matchesNameFilter = keywords.some((keyword: string) => filename.includes(keyword))
             }
 
             if (matchesFileType && matchesNameFilter) {
@@ -204,47 +205,65 @@ export async function POST() {
                 })
 
                 // Decode base64 data
-                const data = attachment.data.data
-                if (data) {
-                  const buffer = Buffer.from(data, "base64")
-
-                  // Upload to Google Drive
-                  const fileMetadata = {
-                    name: part.filename,
-                    parents: [folderId!],
-                  }
-
-                  const media = {
-                    mimeType: getMimeType(fileExtension),
-                    body: buffer,
-                  }
-
-                  const driveFile = await drive.files.create({
-                    requestBody: fileMetadata,
-                    media: media,
-                    fields: "id,name,webViewLink",
-                  })
-
-                  // Log the successful upload
-                  await supabaseAdmin.from("logs").insert({
-                    user_email: session.user.email,
-                    file_name: part.filename,
-                    file_type: fileExtension,
-                    status: "success",
-                    drive_file_id: driveFile.data.id,
-                    drive_link: driveFile.data.webViewLink,
-                    search_query: searchQuery,
-                    gmail_folder: userData.gmail_folder,
-                    gmail_folder_name: folderName,
-                  })
-
-                  downloadResults.push({
-                    filename: part.filename,
-                    size: part.body.size,
-                    status: "success",
-                    driveLink: driveFile.data.webViewLink,
-                  })
+                const data = attachment.data.data; // base64 string
+                if (!data) {
+                  console.error("No attachment data for:", part.filename);
+                  throw new Error("No attachment data received");
                 }
+
+                const buffer = Buffer.from(data, "base64");
+                console.log(`Attachment ${part.filename}: ${buffer.length} bytes`);
+
+                if (buffer.length === 0) {
+                  console.error("Empty buffer for:", part.filename);
+                  throw new Error("Empty attachment data");
+                }
+
+                // Upload to Google Drive
+                console.log(`Uploading ${part.filename} (${buffer.length} bytes) to Drive folder ${folderId}`);
+
+                const fileMetadata = {
+                  name: part.filename,
+                  parents: [folderId!],
+                }
+
+                const stream = Readable.from(buffer);
+
+                const media = {
+                  mimeType: getMimeType(fileExtension),
+                  body: stream,
+                }
+
+                const driveFile = await drive.files.create({
+                  requestBody: fileMetadata,
+                  media: media,
+                  fields: "id,name,webViewLink",
+                })
+
+                console.log("Drive upload response:", JSON.stringify(driveFile.data, null, 2));
+                if (!driveFile.data.id) {
+                  throw new Error("Drive upload failed for " + part.filename);
+                }
+
+                // Log the successful upload
+                await supabaseAdmin.from("logs").insert({
+                  user_email: session.user.email,
+                  file_name: part.filename,
+                  file_type: fileExtension,
+                  status: "success",
+                  drive_file_id: driveFile.data.id,
+                  drive_link: driveFile.data.webViewLink,
+                  search_query: searchQuery,
+                  gmail_folder: userData.gmail_folder,
+                  gmail_folder_name: folderName,
+                })
+
+                downloadResults.push({
+                  filename: part.filename,
+                  size: part.body.size,
+                  status: "success",
+                  driveLink: driveFile.data.webViewLink,
+                })
               } catch (attachmentError) {
                 console.error("Error downloading/uploading attachment:", attachmentError)
 

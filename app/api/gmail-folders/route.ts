@@ -64,16 +64,13 @@ export async function GET() {
 
     // Test Gmail API access
     try {
-      await gmail.users.getProfile({ userId: "me" })
-      console.log("Gmail API access confirmed")
-    } catch (gmailError) {
-      console.error("Gmail API access failed:", gmailError)
-      return NextResponse.json(
-        {
-          error: "Gmail API access failed. Please sign out and sign in again.",
-        },
-        { status: 401 },
-      )
+      const profile = await gmail.users.getProfile({ userId: "me" })
+      console.log("Gmail profile:", profile.data)
+      
+      const labels = await gmail.users.labels.list({ userId: "me" })
+      console.log("Labels response:", labels.data)
+    } catch (error) {
+      console.error("Gmail API test failed:", error)
     }
 
     // Fetch Gmail labels (folders)
@@ -81,10 +78,26 @@ export async function GET() {
       userId: "me",
     })
 
+    console.log("=== GMAIL LABELS DEBUG ===")
+    console.log("Labels response status:", labelsResponse.status)
+    console.log("Labels response data:", JSON.stringify(labelsResponse.data, null, 2))
+
     const labels = labelsResponse.data.labels || []
+    const labelDetails = await Promise.all(
+      labels.map(async (label) => {
+        const detail = await gmail.users.labels.get({ userId: "me", id: label.id })
+        return {
+          id: label.id,
+          name: label.name,
+          messagesTotal: detail.data.messagesTotal || 0,
+          messagesUnread: detail.data.messagesUnread || 0,
+        }
+      })
+    )
+    console.log("Label details with counts:", labelDetails)
 
     // Filter and format labels for user-friendly display
-    const folders = labels
+    const folders = labelDetails
       .filter((label) => {
         // Include system labels and user-created labels
         return (
