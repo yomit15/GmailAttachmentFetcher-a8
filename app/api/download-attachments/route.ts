@@ -167,6 +167,9 @@ export async function POST() {
 
     const folderId = folder.data.id
 
+    // Add this before the upload loop
+    const matchingAttachments = [];
+
     // Process each message
     for (const message of messages.slice(0, 50)) {
       // Limit to 50 for performance
@@ -194,6 +197,14 @@ export async function POST() {
             }
 
             if (matchesFileType && matchesNameFilter) {
+              matchingAttachments.push({
+                filename: part.filename,
+                size: part.body.size,
+                messageId: message.id,
+                fileType: fileExtension,
+                gmailFolder: userData.gmail_folder,
+                searchQuery,
+              });
               attachmentCount++
 
               try {
@@ -289,6 +300,26 @@ export async function POST() {
       } catch (messageError) {
         console.error("Error processing message:", messageError)
       }
+    }
+
+    // Log to console for debugging
+    console.log("Matching attachments before upload:", matchingAttachments);
+
+    // Log to Supabase logs table (optional, for traceability)
+    if (matchingAttachments.length > 0) {
+      await supabaseAdmin.from("logs").insert(
+        matchingAttachments.map(att => ({
+          user_email: session.user.email,
+          file_name: att.filename,
+          file_type: att.fileType,
+          status: "matched", // Use a new status to indicate pre-upload match
+          search_query: att.searchQuery,
+          gmail_folder: att.gmailFolder,
+          message_id: att.messageId,
+          size: att.size,
+          note: "Matched by filters, before upload"
+        }))
+      );
     }
 
     return NextResponse.json({
