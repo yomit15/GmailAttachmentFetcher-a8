@@ -4,13 +4,14 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { Download, Loader2, RefreshCw, ExternalLink, Info } from "lucide-react"
+import { Download, Loader2, RefreshCw, ExternalLink, Info, Folder } from "lucide-react"
 
 export function DownloadButton() {
   const [isDownloading, setIsDownloading] = useState(false)
   const [lastDownload, setLastDownload] = useState<{
     time: string
     folderName?: string
+    gmailFolder?: string
     count: number
     dateRange?: string
     nameFilter?: string
@@ -40,6 +41,7 @@ export function DownloadButton() {
         setLastDownload({
           time: new Date().toLocaleString(),
           folderName: result.folderName,
+          gmailFolder: result.gmailFolder,
           count: result.attachmentCount,
           dateRange: result.dateRange,
           nameFilter: result.nameFilter,
@@ -47,7 +49,7 @@ export function DownloadButton() {
         })
         toast({
           title: "Download Completed!",
-          description: `Found ${result.emailCount} emails. Uploaded ${result.attachmentCount} matching attachments to Google Drive.`,
+          description: `Found ${result.emailCount} emails in "${result.gmailFolder}". Uploaded ${result.attachmentCount} matching attachments to Google Drive.`,
         })
       } else {
         throw new Error(result.error || "Failed to start download")
@@ -72,7 +74,9 @@ export function DownloadButton() {
     <Card>
       <CardHeader>
         <CardTitle>Download & Upload Attachments</CardTitle>
-        <CardDescription>Download filtered attachments from Gmail and upload them to your Google Drive</CardDescription>
+        <CardDescription>
+          Download filtered attachments from selected Gmail folder and upload to Google Drive
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Button onClick={handleDownload} disabled={isDownloading} className="w-full" size="lg">
@@ -98,12 +102,16 @@ export function DownloadButton() {
               </p>
             </div>
 
-            {(lastDownload.dateRange || lastDownload.nameFilter !== "None") && (
+            {(lastDownload.dateRange || lastDownload.nameFilter !== "None" || lastDownload.gmailFolder) && (
               <div className="text-xs text-green-700 bg-green-100 p-2 rounded border">
                 <div className="flex items-center gap-1 mb-1">
                   <Info className="h-3 w-3" />
                   <span className="font-medium">Search Criteria:</span>
                 </div>
+                <p className="flex items-center gap-1">
+                  <Folder className="h-3 w-3" />
+                  Gmail Folder: {lastDownload.gmailFolder}
+                </p>
                 <p>• Date Range: {lastDownload.dateRange}</p>
                 <p>• Name Filter: {lastDownload.nameFilter}</p>
               </div>
@@ -129,7 +137,7 @@ export function DownloadButton() {
         )}
 
         <div className="text-xs text-muted-foreground space-y-1">
-          <p>• Scans Gmail based on your date range and filters</p>
+          <p>• Scans selected Gmail folder based on your filters</p>
           <p>• Downloads files matching your file type and name criteria</p>
           <p>• Uploads matching files to a new organized Google Drive folder</p>
           <p>• Creates detailed logs for tracking and access</p>

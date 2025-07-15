@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, Calendar } from "lucide-react"
+import { Loader2, Calendar, Folder, RefreshCw } from "lucide-react"
 
 const FILE_TYPES = [
   { value: "pdf", label: "PDF Documents (.pdf)" },
@@ -21,12 +21,24 @@ const FILE_TYPES = [
   { value: "all", label: "All File Types" },
 ]
 
+interface GmailFolder {
+  id: string
+  name: string
+  messagesTotal: number
+  messagesUnread: number
+  threadsTotal: number
+  threadsUnread: number
+}
+
 export function FileTypeSelector() {
   const [selectedFileType, setSelectedFileType] = useState<string>("")
   const [fileNameFilter, setFileNameFilter] = useState<string>("")
   const [dateFrom, setDateFrom] = useState<string>("")
+  const [selectedFolder, setSelectedFolder] = useState<string>("")
+  const [gmailFolders, setGmailFolders] = useState<GmailFolder[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingPrefs, setIsLoadingPrefs] = useState(true)
+  const [isLoadingFolders, setIsLoadingFolders] = useState(false)
   const { toast } = useToast()
 
   // Set default date to 30 days ago
@@ -37,12 +49,13 @@ export function FileTypeSelector() {
   }, [])
 
   useEffect(() => {
-    // Load existing preferences
-    const loadPreferences = async () => {
+    // Load existing preferences and folders
+    const loadData = async () => {
       try {
-        const response = await fetch("/api/preferences")
-        if (response.ok) {
-          const { data } = await response.json()
+        // Load preferences
+        const prefsResponse = await fetch("/api/preferences")
+        if (prefsResponse.ok) {
+          const { data } = await prefsResponse.json()
           if (data?.file_type) {
             setSelectedFileType(data.file_type)
           }
@@ -52,16 +65,49 @@ export function FileTypeSelector() {
           if (data?.date_from) {
             setDateFrom(data.date_from.split("T")[0])
           }
+          if (data?.gmail_folder) {
+            setSelectedFolder(data.gmail_folder)
+          }
         }
+
+        // Load Gmail folders
+        await loadGmailFolders()
       } catch (error) {
-        console.error("Failed to load preferences:", error)
+        console.error("Failed to load data:", error)
       } finally {
         setIsLoadingPrefs(false)
       }
     }
 
-    loadPreferences()
+    loadData()
   }, [])
+
+  const loadGmailFolders = async () => {
+    setIsLoadingFolders(true)
+    try {
+      const response = await fetch("/api/gmail-folders")
+      if (response.ok) {
+        const { folders } = await response.json()
+        setGmailFolders(folders || [])
+      } else {
+        const error = await response.json()
+        toast({
+          title: "Failed to load Gmail folders",
+          description: error.error || "Please check your connection and try again",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Failed to load Gmail folders:", error)
+      toast({
+        title: "Error loading folders",
+        description: "Failed to fetch Gmail folders. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoadingFolders(false)
+    }
+  }
 
   const handleSubmit = async () => {
     if (!selectedFileType) {
@@ -82,6 +128,15 @@ export function FileTypeSelector() {
       return
     }
 
+    if (!selectedFolder) {
+      toast({
+        title: "Error",
+        description: "Please select a Gmail folder",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsLoading(true)
 
     try {
@@ -94,6 +149,7 @@ export function FileTypeSelector() {
           fileType: selectedFileType,
           fileNameFilter: fileNameFilter.trim(),
           dateFrom: dateFrom,
+          gmailFolder: selectedFolder,
         }),
       })
 
@@ -131,6 +187,8 @@ export function FileTypeSelector() {
       </Card>
     )
   }
+
+  const selectedFolderInfo = gmailFolders.find((folder) => folder.id === selectedFolder)
 
   return (
     <Card>
@@ -172,6 +230,43 @@ export function FileTypeSelector() {
         </div>
 
         <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="gmail-folder">Gmail Folder</Label>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={loadGmailFolders}
+              disabled={isLoadingFolders}
+              className="h-6 px-2"
+            >
+              {isLoadingFolders ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            </Button>
+          </div>
+          <Select value={selectedFolder} onValueChange={setSelectedFolder} disabled={isLoadingFolders}>
+            <SelectTrigger>
+              <SelectValue placeholder={isLoadingFolders ? "Loading folders..." : "Select a Gmail folder"} />
+            </SelectTrigger>
+            <SelectContent>
+              {gmailFolders.map((folder) => (
+                <SelectItem key={folder.id} value={folder.id}>
+                  <div className="flex items-center space-x-2">
+                    <Folder className="h-4 w-4" />
+                    <span>{folder.name}</span>
+                    <span className="text-xs text-muted-foreground">({folder.messagesTotal} messages)</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selectedFolderInfo && (
+            <p className="text-xs text-muted-foreground">
+              Selected: {selectedFolderInfo.name} - {selectedFolderInfo.messagesTotal} total messages,{" "}
+              {selectedFolderInfo.messagesUnread} unread
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-2">
           <Label htmlFor="file-name-filter">File Name Filter (Optional)</Label>
           <Input
             id="file-name-filter"
@@ -186,7 +281,11 @@ export function FileTypeSelector() {
           </p>
         </div>
 
-        <Button onClick={handleSubmit} disabled={isLoading || !selectedFileType || !dateFrom} className="w-full">
+        <Button
+          onClick={handleSubmit}
+          disabled={isLoading || !selectedFileType || !dateFrom || !selectedFolder}
+          className="w-full"
+        >
           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Save Preferences
         </Button>
@@ -194,6 +293,7 @@ export function FileTypeSelector() {
         <div className="text-xs text-muted-foreground bg-blue-50 p-3 rounded-lg">
           <p className="font-medium mb-1">Current Settings:</p>
           <p>• File Type: {selectedFileType ? FILE_TYPES.find((t) => t.value === selectedFileType)?.label : "None"}</p>
+          <p>• Gmail Folder: {selectedFolderInfo?.name || "None"}</p>
           <p>• Date Range: {dateFrom ? `From ${new Date(dateFrom).toLocaleDateString()}` : "Not set"} to Today</p>
           <p>• Name Filter: {fileNameFilter || "None (all files)"}</p>
         </div>

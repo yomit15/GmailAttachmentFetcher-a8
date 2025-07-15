@@ -17,7 +17,7 @@ export async function POST() {
     // Get user's data including tokens from Supabase
     const { data: userData, error: userError } = await supabaseAdmin
       .from("users")
-      .select("file_type, file_name_filter, date_from, access_token, refresh_token, token_expires_at")
+      .select("file_type, file_name_filter, date_from, gmail_folder, access_token, refresh_token, token_expires_at")
       .eq("email", session.user.email)
       .single()
 
@@ -37,6 +37,7 @@ export async function POST() {
       hasRefreshToken: !!userData.refresh_token,
       fileNameFilter: userData.file_name_filter,
       dateFrom: userData.date_from,
+      gmailFolder: userData.gmail_folder,
       tokenExpiresAt: userData.token_expires_at,
     })
 
@@ -46,6 +47,10 @@ export async function POST() {
 
     if (!userData.date_from) {
       return NextResponse.json({ error: "Please set your date preference first" }, { status: 400 })
+    }
+
+    if (!userData.gmail_folder) {
+      return NextResponse.json({ error: "Please select a Gmail folder first" }, { status: 400 })
     }
 
     if (!userData.access_token) {
@@ -99,14 +104,27 @@ export async function POST() {
       )
     }
 
+    // Get folder name for display
+    let folderName = "Unknown Folder"
+    try {
+      const labelResponse = await gmail.users.labels.get({
+        userId: "me",
+        id: userData.gmail_folder,
+      })
+      folderName = labelResponse.data.name || userData.gmail_folder
+    } catch (error) {
+      console.error("Failed to get folder name:", error)
+      folderName = userData.gmail_folder
+    }
+
     // Build search query based on user preferences
     const fromDate = new Date(userData.date_from)
     const dateQuery = `after:${fromDate.getFullYear()}/${(fromDate.getMonth() + 1)
       .toString()
       .padStart(2, "0")}/${fromDate.getDate().toString().padStart(2, "0")}`
 
-    // Search for emails with attachments
-    let searchQuery = `has:attachment ${dateQuery}`
+    // Search for emails with attachments in the specified folder
+    let searchQuery = `has:attachment ${dateQuery} label:${userData.gmail_folder}`
 
     // Add filename filter if provided
     if (userData.file_name_filter) {
@@ -130,14 +148,14 @@ export async function POST() {
     let attachmentCount = 0
     const downloadResults = []
 
-    console.log(`Found ${messages.length} emails with attachments`)
+    console.log(`Found ${messages.length} emails with attachments in folder: ${folderName}`)
 
     // Create a folder in Google Drive for attachments
-    const folderName = `Gmail Attachments - ${new Date().toISOString().split("T")[0]} - ${userData.file_type}${
-      userData.file_name_filter ? ` (${userData.file_name_filter})` : ""
-    }`
+    const driveFolderName = `Gmail Attachments - ${folderName} - ${new Date().toISOString().split("T")[0]} - ${
+      userData.file_type
+    }${userData.file_name_filter ? ` (${userData.file_name_filter})` : ""}`
     const folderMetadata = {
-      name: folderName,
+      name: driveFolderName,
       mimeType: "application/vnd.google-apps.folder",
     }
 
@@ -216,6 +234,8 @@ export async function POST() {
                     drive_file_id: driveFile.data.id,
                     drive_link: driveFile.data.webViewLink,
                     search_query: searchQuery,
+                    gmail_folder: userData.gmail_folder,
+                    gmail_folder_name: folderName,
                   })
 
                   downloadResults.push({
@@ -235,6 +255,8 @@ export async function POST() {
                   file_type: fileExtension,
                   status: "failed",
                   search_query: searchQuery,
+                  gmail_folder: userData.gmail_folder,
+                  gmail_folder_name: folderName,
                 })
 
                 downloadResults.push({
@@ -255,11 +277,12 @@ export async function POST() {
       emailCount: messages.length,
       attachmentCount,
       downloads: downloadResults,
-      folderName,
+      folderName: driveFolderName,
+      gmailFolder: folderName,
       searchQuery,
       dateRange: `From ${fromDate.toLocaleDateString()} to ${new Date().toLocaleDateString()}`,
       nameFilter: userData.file_name_filter || "None",
-      message: `Processed ${messages.length} emails and uploaded ${attachmentCount} matching attachments to Google Drive`,
+      message: `Processed ${messages.length} emails from "${folderName}" and uploaded ${attachmentCount} matching attachments to Google Drive`,
     })
   } catch (error) {
     console.error("Download error:", error)

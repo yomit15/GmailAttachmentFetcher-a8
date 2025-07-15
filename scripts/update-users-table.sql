@@ -1,6 +1,7 @@
 -- Add new columns to users table for enhanced filtering
 ALTER TABLE users ADD COLUMN IF NOT EXISTS file_name_filter TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS date_from DATE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gmail_folder TEXT;
 
 -- Add new column to logs table for search query tracking
 ALTER TABLE logs ADD COLUMN IF NOT EXISTS search_query TEXT;
