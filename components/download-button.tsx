@@ -1,14 +1,28 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { Download, Loader2 } from "lucide-react"
+import { Download, Loader2, RefreshCw, ExternalLink, Info, Folder } from "lucide-react"
 
 export function DownloadButton() {
   const [isDownloading, setIsDownloading] = useState(false)
+  const [lastDownload, setLastDownload] = useState<{
+    time: string
+    folderName?: string
+    gmailFolder?: string
+    count: number
+    dateRange?: string
+    nameFilter?: string
+    searchQuery?: string
+  } | null>(null)
   const { toast } = useToast()
+
+  // Reset download state on component mount
+  useEffect(() => {
+    setIsDownloading(false)
+  }, [])
 
   const handleDownload = async () => {
     setIsDownloading(true)
@@ -24,14 +38,24 @@ export function DownloadButton() {
       const result = await response.json()
 
       if (response.ok) {
+        setLastDownload({
+          time: new Date().toLocaleString(),
+          folderName: result.folderName,
+          gmailFolder: result.gmailFolder,
+          count: result.attachmentCount,
+          dateRange: result.dateRange,
+          nameFilter: result.nameFilter,
+          searchQuery: result.searchQuery,
+        })
         toast({
-          title: "Download Started!",
-          description: `Found ${result.emailCount} emails. Processing ${result.attachmentCount} attachments.`,
+          title: "Download Completed!",
+          description: `Found ${result.emailCount} emails in "${result.gmailFolder}". Uploaded ${result.attachmentCount} matching attachments to Google Drive.`,
         })
       } else {
         throw new Error(result.error || "Failed to start download")
       }
     } catch (error) {
+      console.error("Download error:", error)
       toast({
         title: "Download Failed",
         description: error instanceof Error ? error.message : "An unexpected error occurred",
@@ -42,13 +66,19 @@ export function DownloadButton() {
     }
   }
 
+  const openGoogleDrive = () => {
+    window.open("https://drive.google.com", "_blank")
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Download Attachments</CardTitle>
-        <CardDescription>Download attachments from emails received in the last 30 days</CardDescription>
+        <CardTitle>Download & Upload Attachments</CardTitle>
+        <CardDescription>
+          Download filtered attachments from selected Gmail folder and upload to Google Drive
+        </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <Button onClick={handleDownload} disabled={isDownloading} className="w-full" size="lg">
           {isDownloading ? (
             <>
@@ -58,13 +88,60 @@ export function DownloadButton() {
           ) : (
             <>
               <Download className="mr-2 h-4 w-4" />
-              Download Attachments
+              Download & Upload to Drive
             </>
           )}
         </Button>
-        <p className="text-xs text-muted-foreground mt-2 text-center">
-          This will scan your Gmail for attachments matching your selected file type
-        </p>
+
+        {lastDownload && (
+          <div className="space-y-3 p-4 bg-green-50 rounded-lg border border-green-200">
+            <div className="text-center">
+              <p className="text-sm font-medium text-green-800">Last upload: {lastDownload.time}</p>
+              <p className="text-xs text-green-600">
+                {lastDownload.count} files uploaded to "{lastDownload.folderName}"
+              </p>
+            </div>
+
+            {(lastDownload.dateRange || lastDownload.nameFilter !== "None" || lastDownload.gmailFolder) && (
+              <div className="text-xs text-green-700 bg-green-100 p-2 rounded border">
+                <div className="flex items-center gap-1 mb-1">
+                  <Info className="h-3 w-3" />
+                  <span className="font-medium">Search Criteria:</span>
+                </div>
+                <p className="flex items-center gap-1">
+                  <Folder className="h-3 w-3" />
+                  Gmail Folder: {lastDownload.gmailFolder}
+                </p>
+                <p>• Date Range: {lastDownload.dateRange}</p>
+                <p>• Name Filter: {lastDownload.nameFilter}</p>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownload}
+                disabled={isDownloading}
+                className="flex-1 bg-transparent"
+              >
+                <RefreshCw className="mr-2 h-3 w-3" />
+                Upload Again
+              </Button>
+              <Button variant="outline" size="sm" onClick={openGoogleDrive} className="flex-1 bg-transparent">
+                <ExternalLink className="mr-2 h-3 w-3" />
+                Open Drive
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="text-xs text-muted-foreground space-y-1">
+          <p>• Scans selected Gmail folder based on your filters</p>
+          <p>• Downloads files matching your file type and name criteria</p>
+          <p>• Uploads matching files to a new organized Google Drive folder</p>
+          <p>• Creates detailed logs for tracking and access</p>
+        </div>
       </CardContent>
     </Card>
   )

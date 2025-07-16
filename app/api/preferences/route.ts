@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
-import { supabase } from "@/lib/supabase"
+import { supabaseAdmin } from "@/lib/supabase-admin"
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,21 +11,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { fileType } = await request.json()
+    const { fileType, fileNameFilter, dateFrom, gmailFolder } = await request.json()
 
     if (!fileType) {
       return NextResponse.json({ error: "File type is required" }, { status: 400 })
     }
 
-    // Upsert user preferences
-    const { data, error } = await supabase.from("users").upsert(
+    if (!dateFrom) {
+      return NextResponse.json({ error: "Start date is required" }, { status: 400 })
+    }
+
+    if (!gmailFolder) {
+      return NextResponse.json({ error: "Gmail folder is required" }, { status: 400 })
+    }
+
+    // Update user preferences (preserve existing tokens)
+    const { data, error } = await supabaseAdmin.from("users").upsert(
       {
         email: session.user.email,
         file_type: fileType,
+        file_name_filter: fileNameFilter || null,
+        date_from: dateFrom,
+        gmail_folder: gmailFolder,
         updated_at: new Date().toISOString(),
       },
       {
         onConflict: "email",
+        ignoreDuplicates: false,
       },
     )
 
@@ -49,7 +61,11 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { data, error } = await supabase.from("users").select("*").eq("email", session.user.email).single()
+    const { data, error } = await supabaseAdmin
+      .from("users")
+      .select("file_type, file_name_filter, date_from, gmail_folder, created_at, updated_at")
+      .eq("email", session.user.email)
+      .single()
 
     if (error && error.code !== "PGRST116") {
       console.error("Supabase error:", error)
